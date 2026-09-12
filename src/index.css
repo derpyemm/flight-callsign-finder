@@ -194,6 +194,16 @@ th {
   letter-spacing: 0.04em;
 }
 
+.flight-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--mono);
+}
+
+.flight-link:hover {
+  text-decoration: underline;
+}
+
 .copy {
   padding: 6px 10px;
 }

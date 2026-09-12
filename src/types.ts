@@ -4,6 +4,8 @@ export type CallsignHit = {
   callsign: string
   type: string
   origin?: string
+  iata?: string
+  durationMinutes?: number
   count: number
   lastSeen?: string
   sources: SearchSource[]

@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { searchCallsigns } from './lib/search'
+import { formatDuration, googleFlightUrl } from './lib/flightIdentity'
 import type { SearchResult } from './types'
 
 const TOKEN_KEY = 'fr24-api-token'
 const OPENSKY_ID_KEY = 'opensky-client-id'
 const OPENSKY_SECRET_KEY = 'opensky-client-secret'
-
 function loadToken() {
   return localStorage.getItem(TOKEN_KEY) ?? ''
 }
@@ -68,10 +68,14 @@ export default function App() {
     setShowSettings(false)
   }
 
-  async function copyCallsign(callsign: string) {
-    await navigator.clipboard.writeText(callsign)
-    setCopied(callsign)
-    window.setTimeout(() => setCopied(''), 1500)
+  async function copyValue(value: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(value)
+      window.setTimeout(() => setCopied(''), 1500)
+    } catch {
+      setCopied('')
+    }
   }
 
   return (
@@ -201,6 +205,9 @@ export default function App() {
             {result.fr24Days
               ? ` · FR24: ${result.fr24Flights ?? 0} flights over ${result.fr24Days} days`
               : ''}
+            {result.hits.length
+              ? ' · Block is actual takeoff-to-landing; click it for Google’s scheduled time.'
+              : ''}
           </p>
           {result.warnings.map((warning) => (
             <p key={warning} className="warning">
@@ -212,6 +219,8 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Callsign</th>
+                  <th>IATA</th>
+                  <th>Block</th>
                   <th>Type</th>
                   <th>Origin</th>
                   <th>Seen</th>
@@ -220,20 +229,35 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {result.hits.map((hit) => (
-                  <tr key={hit.callsign}>
-                    <td className="callsign">{hit.callsign}</td>
-                    <td>{hit.type}</td>
-                    <td>{hit.origin ?? '—'}</td>
-                    <td>{hit.count}</td>
-                    <td>{hit.sources.join(', ')}</td>
-                    <td>
-                      <button type="button" className="copy" onClick={() => copyCallsign(hit.callsign)}>
-                        {copied === hit.callsign ? 'Copied' : 'Copy'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {result.hits.map((hit) => {
+                  const copyText = hit.iata || hit.callsign
+                  const googleUrl = googleFlightUrl(hit.iata)
+                  const blockLabel = formatDuration(hit.durationMinutes)
+                  return (
+                    <tr key={hit.callsign}>
+                      <td className="callsign">{hit.callsign}</td>
+                      <td className="callsign">{hit.iata ?? '—'}</td>
+                      <td>
+                        {googleUrl ? (
+                          <a className="flight-link" href={googleUrl} target="_blank" rel="noreferrer">
+                            {blockLabel === '—' ? hit.iata : blockLabel}
+                          </a>
+                        ) : (
+                          blockLabel
+                        )}
+                      </td>
+                      <td>{hit.type}</td>
+                      <td>{hit.origin ?? '—'}</td>
+                      <td>{hit.count}</td>
+                      <td>{hit.sources.join(', ')}</td>
+                      <td>
+                        <button type="button" className="copy" onClick={() => copyValue(copyText)}>
+                          {copied === copyText ? 'Copied' : 'Copy'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           ) : null}

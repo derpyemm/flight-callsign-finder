@@ -6,6 +6,7 @@ type OpenSkyFlight = {
   callsign?: string | null
   estDepartureAirport?: string | null
   estArrivalAirport?: string | null
+  firstSeen?: number
   lastSeen?: number
 }
 
@@ -91,10 +92,15 @@ export async function searchRecentArrivals(
     if (!type || !wanted.has(type)) continue
     const callsign = flight.callsign?.trim().toUpperCase()
     if (!callsign) continue
+    const durationMinutes =
+      flight.firstSeen && flight.lastSeen && flight.lastSeen > flight.firstSeen
+        ? Math.round((flight.lastSeen - flight.firstSeen) / 60)
+        : undefined
     hits.push({
       callsign,
       type,
       origin: flight.estDepartureAirport?.toUpperCase() || undefined,
+      durationMinutes,
       count: 1,
       lastSeen: flight.lastSeen ? new Date(flight.lastSeen * 1000).toISOString() : undefined,
       sources: ['opensky'],

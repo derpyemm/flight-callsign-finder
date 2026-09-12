@@ -3,6 +3,7 @@ import { loadCachedHits, mergeHits, saveHits } from './cache'
 import { searchLiveArrivals } from './adsb'
 import { searchRecentArrivals } from './opensky'
 import { searchFr24Arrivals } from './fr24'
+import { preferFlightNumber, resolveIataNumbers } from './flightIdentity'
 import type { CallsignHit, SearchResult } from '../types'
 
 export async function searchCallsigns(input: {
@@ -90,6 +91,15 @@ export async function searchCallsigns(input: {
     hit.sources.some((source) => source === 'opensky' || source === 'fr24'),
   )
   const hits = mergeHits(cached, mergeHits(live.hits, mergeHits(recentHits, fr24Hits)))
+  const missingIata = hits.filter((hit) => !hit.iata).map((hit) => hit.callsign)
+  if (missingIata.length) {
+    input.onProgress?.('Looking up IATA flight numbers…')
+    const iataByCallsign = await resolveIataNumbers(missingIata)
+    for (const hit of hits) {
+      hit.iata = preferFlightNumber(hit.iata, iataByCallsign.get(hit.callsign))
+    }
+  }
+
   saveHits(aircraft, airport, hits)
 
   return {

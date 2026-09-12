@@ -1,6 +1,7 @@
 import type { CallsignHit, SearchSource } from '../types'
+import { preferFlightNumber } from './flightIdentity'
 
-const STORAGE_KEY = 'sim-arrivals-cache-v1'
+const STORAGE_KEY = 'sim-arrivals-cache-v2'
 
 type CacheStore = Record<string, CallsignHit[]>
 
@@ -39,6 +40,8 @@ export function mergeHits(existing: CallsignHit[], incoming: CallsignHit[]): Cal
       callsign: key,
       type: prev.type || hit.type,
       origin: hit.origin || prev.origin,
+      iata: preferFlightNumber(prev.iata, hit.iata),
+      durationMinutes: hit.durationMinutes ?? prev.durationMinutes,
       count: prev.count + hit.count,
       lastSeen: [prev.lastSeen, hit.lastSeen].filter(Boolean).sort().at(-1),
       sources: [...sources],

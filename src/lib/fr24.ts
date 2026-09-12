@@ -1,12 +1,16 @@
 import type { CallsignHit } from '../types'
+import { durationMinutesBetween, normalizeFlightNumber } from './flightIdentity'
 
 type Fr24Flight = {
   callsign?: string | null
   flight?: string | null
   type?: string | null
   orig_icao?: string | null
+  origin_icao?: string | null
   dest_icao?: string | null
+  destination_icao?: string | null
   dest_icao_actual?: string | null
+  destination_icao_actual?: string | null
   datetime_landed?: string | null
   datetime_takeoff?: string | null
 }
@@ -29,7 +33,12 @@ function daySlices(lookbackDays: number): { from: string; to: string }[] {
 }
 
 function destinationOf(row: Fr24Flight): string {
-  return (row.dest_icao_actual || row.dest_icao || '').toUpperCase()
+  return (row.dest_icao_actual || row.destination_icao_actual || row.dest_icao || row.destination_icao || '').toUpperCase()
+}
+
+function originOf(row: Fr24Flight): string | undefined {
+  const origin = (row.orig_icao || row.origin_icao || '').toUpperCase()
+  return origin || undefined
 }
 
 async function fetchSummary(token: string, params: URLSearchParams): Promise<Fr24Flight[]> {
@@ -102,7 +111,9 @@ export async function searchFr24Arrivals(
       hits.push({
         callsign,
         type: (row.type || types[0]).toUpperCase(),
-        origin: row.orig_icao?.toUpperCase(),
+        origin: originOf(row),
+        iata: normalizeFlightNumber(row.flight),
+        durationMinutes: durationMinutesBetween(row.datetime_takeoff, row.datetime_landed),
         count: 1,
         lastSeen: row.datetime_landed || row.datetime_takeoff || undefined,
         sources: ['fr24'],
