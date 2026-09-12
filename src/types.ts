@@ -4,6 +4,7 @@ export type CallsignHit = {
   callsign: string
   type: string
   origin?: string
+  destination?: string
   iata?: string
   durationMinutes?: number
   count: number
@@ -13,7 +14,8 @@ export type CallsignHit = {
 
 export type SearchResult = {
   aircraft: string
-  airport: string
+  origin?: string
+  destination?: string
   types: string[]
   hits: CallsignHit[]
   liveChecked: number

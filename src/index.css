@@ -29,7 +29,7 @@ body {
 }
 
 .page {
-  width: min(920px, 100%);
+  width: min(1040px, 100%);
   margin: 0 auto;
   padding: 32px 20px 64px;
 }
@@ -89,7 +89,7 @@ h1 {
 }
 
 .form {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 label {

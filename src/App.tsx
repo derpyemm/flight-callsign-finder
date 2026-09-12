@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { searchCallsigns } from './lib/search'
-import { formatDuration, googleFlightUrl } from './lib/flightIdentity'
+import { formatDepartureUtc, formatDuration, formatFlightDay, formatRoute, googleFlightUrl } from './lib/flightIdentity'
 import type { SearchResult } from './types'
 
 const TOKEN_KEY = 'fr24-api-token'
@@ -10,9 +10,17 @@ function loadToken() {
   return localStorage.getItem(TOKEN_KEY) ?? ''
 }
 
+function routeSummary(origin?: string, destination?: string): string {
+  if (origin && destination) return `${origin} → ${destination}`
+  if (destination) return `into ${destination}`
+  if (origin) return `out of ${origin}`
+  return ''
+}
+
 export default function App() {
   const [aircraft, setAircraft] = useState('A320')
-  const [airport, setAirport] = useState('EHAM')
+  const [origin, setOrigin] = useState('')
+  const [destination, setDestination] = useState('EHAM')
   const [includeFamily, setIncludeFamily] = useState(true)
   const [token, setToken] = useState(loadToken)
   const [openskyId, setOpenskyId] = useState(() => localStorage.getItem(OPENSKY_ID_KEY) ?? '')
@@ -29,10 +37,11 @@ export default function App() {
 
   const summary = useMemo(() => {
     if (!result) return ''
+    const where = routeSummary(result.origin, result.destination)
     if (result.hits.length === 0) {
-      return `No recent evidence that ${result.types.join('/')} operates into ${result.airport}.`
+      return `No recent evidence that ${result.types.join('/')} operates ${where}.`
     }
-    return `${result.hits.length} callsign${result.hits.length === 1 ? '' : 's'} for ${result.types.join('/')} into ${result.airport}.`
+    return `${result.hits.length} callsign${result.hits.length === 1 ? '' : 's'} for ${result.types.join('/')} ${where}.`
   }, [result])
 
   async function onSearch(event: React.FormEvent) {
@@ -43,7 +52,8 @@ export default function App() {
     try {
       const next = await searchCallsigns({
         aircraft,
-        airport,
+        origin,
+        destination,
         includeFamily,
         openskyClientId: openskyId,
         openskyClientSecret: openskySecret,
@@ -154,14 +164,25 @@ export default function App() {
           />
         </label>
         <label>
-          Arrival airport ICAO
+          Departure ICAO
           <input
             type="text"
-            value={airport}
-            onChange={(event) => setAirport(event.target.value)}
+            value={origin}
+            onChange={(event) => setOrigin(event.target.value)}
             spellCheck={false}
             maxLength={4}
-            required
+            placeholder="Any"
+          />
+        </label>
+        <label>
+          Arrival ICAO
+          <input
+            type="text"
+            value={destination}
+            onChange={(event) => setDestination(event.target.value)}
+            spellCheck={false}
+            maxLength={4}
+            placeholder="Any"
           />
         </label>
         <label className="check">
@@ -200,14 +221,16 @@ export default function App() {
         <section className="panel results">
           <h2>{summary}</h2>
           <p className="meta">
-            Live: {result.liveMatched} inbound now / {result.liveChecked} of type airborne
-            {result.recentFlights != null ? ` · OpenSky: ${result.recentFlights} recent arrivals` : ''}
-            {result.fr24Days
-              ? ` · FR24: ${result.fr24Flights ?? 0} flights over ${result.fr24Days} days`
-              : ''}
-            {result.hits.length
-              ? ' · Block is actual takeoff-to-landing; click it for Google’s scheduled time.'
-              : ''}
+            {[
+              result.liveMatched ? `Live: ${result.liveMatched} matching now` : '',
+              result.recentFlights != null ? `OpenSky: ${result.recentFlights} recent flights` : '',
+              result.fr24Days ? `FR24: ${result.fr24Flights ?? 0} flights over ${result.fr24Days} days` : '',
+              result.hits.length
+                ? 'Block is actual takeoff-to-landing; click it for Google’s scheduled time.'
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
           {result.warnings.map((warning) => (
             <p key={warning} className="warning">
@@ -222,9 +245,9 @@ export default function App() {
                   <th>IATA</th>
                   <th>Block</th>
                   <th>Type</th>
-                  <th>Origin</th>
-                  <th>Seen</th>
-                  <th>Source</th>
+                  <th>Route</th>
+                  <th>Day</th>
+                  <th>Dep UTC</th>
                   <th></th>
                 </tr>
               </thead>
@@ -247,9 +270,9 @@ export default function App() {
                         )}
                       </td>
                       <td>{hit.type}</td>
-                      <td>{hit.origin ?? '—'}</td>
-                      <td>{hit.count}</td>
-                      <td>{hit.sources.join(', ')}</td>
+                      <td className="callsign">{formatRoute(hit.origin, hit.destination)}</td>
+                      <td className="callsign">{formatFlightDay(hit.lastSeen)}</td>
+                      <td className="callsign">{formatDepartureUtc(hit.lastSeen)}</td>
                       <td>
                         <button type="button" className="copy" onClick={() => copyValue(copyText)}>
                           {copied === copyText ? 'Copied' : 'Copy'}

@@ -119,11 +119,20 @@ async function fetchTypeWorldwide(type: string): Promise<AdsbAircraft[]> {
   return json?.ac ?? []
 }
 
-export async function searchLiveArrivals(
+async function airportCodes(icao: string): Promise<Set<string>> {
+  const info = await fetchAirport(icao)
+  return new Set([icao, info.icao, info.iata].filter(Boolean).map((code) => code!.toUpperCase()))
+}
+
+export async function searchLiveFlights(
   types: string[],
-  airport: string,
+  origin?: string,
+  destination?: string,
 ): Promise<{ hits: CallsignHit[]; checked: number; matched: number }> {
-  const info = await fetchAirport(airport)
+  const nearbyAirport = destination || origin
+  if (!nearbyAirport) return { hits: [], checked: 0, matched: 0 }
+
+  const info = await fetchAirport(nearbyAirport)
   const wanted = new Set(types)
   const nearby = await fetchNearby(info.lat as number, info.lon as number, 250)
   const worldwide: AdsbAircraft[] = []
@@ -146,9 +155,8 @@ export async function searchLiveArrivals(
     lng: item.lon ?? 0,
   }))
   const routes = planes.length ? await fetchRoutes(planes) : []
-  const destCodes = new Set(
-    [airport, info.icao, info.iata].filter(Boolean).map((code) => code!.toUpperCase()),
-  )
+  const destCodes = destination ? await airportCodes(destination) : undefined
+  const originCodes = origin ? await airportCodes(origin) : undefined
   const hits: CallsignHit[] = []
   const matched = new Set<string>()
 
@@ -156,29 +164,34 @@ export async function searchLiveArrivals(
     const callsign = trimCallsign(row.callsign)
     if (!callsign) continue
     const dest = destinationIcao(row)
-    if (dest && !destCodes.has(dest)) continue
-    if (dest || isAtAirport(byCallsign.get(callsign))) {
-      matched.add(callsign)
+    const from = originIcao(row)
+    const destOk = !destCodes || (dest ? destCodes.has(dest) : isAtAirport(byCallsign.get(callsign)))
+    const originOk = !originCodes || (from ? originCodes.has(from) : isAtAirport(byCallsign.get(callsign)))
+    if (!destOk || !originOk) continue
+    if (origin && destination && (!from || !dest)) continue
+    matched.add(callsign)
+    hits.push({
+      callsign,
+      type: byCallsign.get(callsign)?.t?.toUpperCase() ?? types[0],
+      origin: from,
+      destination: dest,
+      count: 1,
+      sources: ['live'],
+    })
+  }
+
+  if (!(origin && destination)) {
+    for (const [callsign, item] of byCallsign) {
+      if (matched.has(callsign) || !isAtAirport(item)) continue
       hits.push({
         callsign,
-        type: byCallsign.get(callsign)?.t?.toUpperCase() ?? types[0],
-        origin: originIcao(row),
+        type: item.t?.toUpperCase() ?? types[0],
+        origin: origin,
+        destination: destination,
         count: 1,
-        lastSeen: new Date().toISOString(),
         sources: ['live'],
       })
     }
-  }
-
-  for (const [callsign, item] of byCallsign) {
-    if (matched.has(callsign) || !isAtAirport(item)) continue
-    hits.push({
-      callsign,
-      type: item.t?.toUpperCase() ?? types[0],
-      count: 1,
-      lastSeen: new Date().toISOString(),
-      sources: ['live'],
-    })
   }
 
   return { hits, checked: byCallsign.size, matched: hits.length }

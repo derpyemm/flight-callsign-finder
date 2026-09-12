@@ -49,3 +49,8 @@ export function normalizeIcaoType(value: string): string {
 export function normalizeIcaoAirport(value: string): string {
   return value.trim().toUpperCase()
 }
+
+export function optionalIcaoAirport(value: string | undefined): string | undefined {
+  const code = value?.trim().toUpperCase()
+  return code || undefined
+}

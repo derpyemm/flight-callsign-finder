@@ -1,12 +1,12 @@
 import type { CallsignHit, SearchSource } from '../types'
 import { preferFlightNumber } from './flightIdentity'
 
-const STORAGE_KEY = 'sim-arrivals-cache-v2'
+const STORAGE_KEY = 'sim-arrivals-cache-v3'
 
 type CacheStore = Record<string, CallsignHit[]>
 
-function cacheKey(aircraft: string, airport: string): string {
-  return `${aircraft}|${airport}`
+function cacheKey(aircraft: string, origin?: string, destination?: string): string {
+  return `${aircraft}|${origin ?? ''}|${destination ?? ''}`
 }
 
 function readStore(): CacheStore {
@@ -22,8 +22,8 @@ function writeStore(store: CacheStore) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store))
 }
 
-export function loadCachedHits(aircraft: string, airport: string): CallsignHit[] {
-  return readStore()[cacheKey(aircraft, airport)] ?? []
+export function loadCachedHits(aircraft: string, origin?: string, destination?: string): CallsignHit[] {
+  return readStore()[cacheKey(aircraft, origin, destination)] ?? []
 }
 
 export function mergeHits(existing: CallsignHit[], incoming: CallsignHit[]): CallsignHit[] {
@@ -40,6 +40,7 @@ export function mergeHits(existing: CallsignHit[], incoming: CallsignHit[]): Cal
       callsign: key,
       type: prev.type || hit.type,
       origin: hit.origin || prev.origin,
+      destination: hit.destination || prev.destination,
       iata: preferFlightNumber(prev.iata, hit.iata),
       durationMinutes: hit.durationMinutes ?? prev.durationMinutes,
       count: prev.count + hit.count,
@@ -50,8 +51,8 @@ export function mergeHits(existing: CallsignHit[], incoming: CallsignHit[]): Cal
   return [...byCallsign.values()].sort((a, b) => a.callsign.localeCompare(b.callsign))
 }
 
-export function saveHits(aircraft: string, airport: string, hits: CallsignHit[]) {
+export function saveHits(aircraft: string, hits: CallsignHit[], origin?: string, destination?: string) {
   const store = readStore()
-  store[cacheKey(aircraft, airport)] = hits
+  store[cacheKey(aircraft, origin, destination)] = hits
   writeStore(store)
 }

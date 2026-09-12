@@ -71,6 +71,35 @@ export function googleFlightUrl(flight?: string): string | undefined {
   return `https://www.google.com/search?q=${encodeURIComponent(iata)}`
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function utcDate(iso?: string): Date | undefined {
+  if (!iso) return undefined
+  const date = new Date(iso)
+  return Number.isFinite(date.getTime()) ? date : undefined
+}
+
+export function formatFlightDay(iso?: string): string {
+  const date = utcDate(iso)
+  if (!date) return '—'
+  return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`
+}
+
+export function formatDepartureUtc(iso?: string): string {
+  const date = utcDate(iso)
+  if (!date) return '—'
+  const hours = String(date.getUTCHours()).padStart(2, '0')
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+export function formatRoute(origin?: string, destination?: string): string {
+  if (origin && destination) return `${origin} → ${destination}`
+  if (origin) return `${origin} →`
+  if (destination) return `→ ${destination}`
+  return '—'
+}
+
 export function formatDuration(minutes?: number): string {
   if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return '—'
   const hours = Math.floor(minutes / 60)

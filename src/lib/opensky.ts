@@ -49,43 +49,63 @@ function utcDayWindow(daysAgo: number): { begin: number; end: number } {
   return { begin, end }
 }
 
-async function fetchArrivals(token: string, airport: string, begin: number, end: number): Promise<OpenSkyFlight[]> {
+async function fetchAirportFlights(
+  token: string,
+  kind: 'arrival' | 'departure',
+  airport: string,
+  begin: number,
+  end: number,
+): Promise<OpenSkyFlight[]> {
   const response = await fetch(
-    `/opensky/api/flights/arrival?airport=${encodeURIComponent(airport)}&begin=${begin}&end=${end}`,
+    `/opensky/api/flights/${kind}?airport=${encodeURIComponent(airport)}&begin=${begin}&end=${end}`,
     { headers: { Authorization: `Bearer ${token}` } },
   )
   if (response.status === 404) return []
   if (!response.ok) {
-    throw new Error(`OpenSky arrivals failed (${response.status})`)
+    throw new Error(`OpenSky ${kind}s failed (${response.status})`)
   }
   return (await response.json()) as OpenSkyFlight[]
 }
 
-export async function searchRecentArrivals(
+export async function searchRecentFlights(
   clientId: string,
   clientSecret: string,
   types: string[],
-  airport: string,
+  origin?: string,
+  destination?: string,
   onProgress?: (message: string) => void,
 ): Promise<{ hits: CallsignHit[]; flights: number }> {
   const token = await getToken(clientId, clientSecret)
   const wanted = new Set(types)
   const flights: OpenSkyFlight[] = []
+  const kind = destination ? 'arrival' : 'departure'
+  const airport = destination || origin
+  if (!airport) return { hits: [], flights: 0 }
 
   for (const daysAgo of [1, 2]) {
     const { begin, end } = utcDayWindow(daysAgo)
-    onProgress?.(`Loading completed arrivals from ${daysAgo === 1 ? 'yesterday' : 'the day before'}…`)
-    flights.push(...(await fetchArrivals(token, airport, begin, end)))
+    const when = daysAgo === 1 ? 'yesterday' : 'the day before'
+    onProgress?.(
+      kind === 'arrival'
+        ? `Loading completed arrivals from ${when}…`
+        : `Loading completed departures from ${when}…`,
+    )
+    flights.push(...(await fetchAirportFlights(token, kind, airport, begin, end)))
   }
 
-  const hexes = [...new Set(flights.map((flight) => flight.icao24?.toLowerCase()).filter(Boolean))] as string[]
-  onProgress?.('Matching arrivals to aircraft types…')
+  const scoped =
+    origin && destination
+      ? flights.filter((flight) => flight.estDepartureAirport?.toUpperCase() === origin)
+      : flights
+
+  const hexes = [...new Set(scoped.map((flight) => flight.icao24?.toLowerCase()).filter(Boolean))] as string[]
+  onProgress?.('Matching flights to aircraft types…')
   const typeByHex = await resolveTypes(hexes, (done, total) => {
-    onProgress?.(`Matching arrivals to aircraft types… ${done}/${total}`)
+    onProgress?.(`Matching flights to aircraft types… ${done}/${total}`)
   })
 
   const hits: CallsignHit[] = []
-  for (const flight of flights) {
+  for (const flight of scoped) {
     const hex = flight.icao24?.toLowerCase()
     if (!hex) continue
     const type = typeByHex.get(hex)
@@ -99,10 +119,15 @@ export async function searchRecentArrivals(
     hits.push({
       callsign,
       type,
-      origin: flight.estDepartureAirport?.toUpperCase() || undefined,
+      origin: flight.estDepartureAirport?.toUpperCase() || origin,
+      destination: flight.estArrivalAirport?.toUpperCase() || destination,
       durationMinutes,
       count: 1,
-      lastSeen: flight.lastSeen ? new Date(flight.lastSeen * 1000).toISOString() : undefined,
+      lastSeen: flight.firstSeen
+        ? new Date(flight.firstSeen * 1000).toISOString()
+        : flight.lastSeen
+          ? new Date(flight.lastSeen * 1000).toISOString()
+          : undefined,
       sources: ['opensky'],
     })
   }
