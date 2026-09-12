@@ -18,9 +18,9 @@ function routeSummary(origin?: string, destination?: string): string {
 }
 
 export default function App() {
-  const [aircraft, setAircraft] = useState('A320')
+  const [aircraft, setAircraft] = useState('')
   const [origin, setOrigin] = useState('')
-  const [destination, setDestination] = useState('EHAM')
+  const [destination, setDestination] = useState('')
   const [includeFamily, setIncludeFamily] = useState(true)
   const [token, setToken] = useState(loadToken)
   const [openskyId, setOpenskyId] = useState(() => localStorage.getItem(OPENSKY_ID_KEY) ?? '')
