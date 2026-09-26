@@ -113,8 +113,7 @@ input:not([type]) {
   text-transform: uppercase;
 }
 
-input[type='password'],
-input.plain {
+input[type='password'] {
   text-transform: none;
 }
 

@@ -15,16 +15,6 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/fr24/, ''),
       },
-      '/opensky-auth': {
-        target: 'https://auth.opensky-network.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/opensky-auth/, ''),
-      },
-      '/opensky': {
-        target: 'https://opensky-network.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/opensky/, ''),
-      },
       '/adsbdb': {
         target: 'https://api.adsbdb.com',
         changeOrigin: true,

@@ -1,7 +1,7 @@
 import type { CallsignHit, SearchSource } from '../types'
 import { preferFlightNumber } from './flightIdentity'
 
-const STORAGE_KEY = 'sim-arrivals-cache-v3'
+const STORAGE_KEY = 'sim-arrivals-cache-v4'
 
 type CacheStore = Record<string, CallsignHit[]>
 

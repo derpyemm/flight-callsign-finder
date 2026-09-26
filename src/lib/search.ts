@@ -1,7 +1,6 @@
 import { expandAircraftTypes, normalizeIcaoType, optionalIcaoAirport } from './aircraftFamilies'
 import { loadCachedHits, mergeHits, saveHits } from './cache'
 import { searchLiveFlights } from './adsb'
-import { searchRecentFlights } from './opensky'
 import { searchFr24Flights } from './fr24'
 import { preferFlightNumber, resolveIataNumbers } from './flightIdentity'
 import type { CallsignHit, SearchResult } from '../types'
@@ -29,8 +28,6 @@ export async function searchCallsigns(input: {
   origin?: string
   destination?: string
   includeFamily: boolean
-  openskyClientId?: string
-  openskyClientSecret?: string
   fr24Token?: string
   fr24LookbackDays?: number
   onProgress?: (message: string) => void
@@ -65,24 +62,7 @@ export async function searchCallsigns(input: {
     )
   }
 
-  let recentFlights: number | undefined
-  let recentHits: CallsignHit[] = []
-  const clientId = input.openskyClientId?.trim()
-  const clientSecret = input.openskyClientSecret?.trim()
-  if (clientId && clientSecret) {
-    const recent = await searchRecentFlights(clientId, clientSecret, types, origin, destination, input.onProgress)
-    recentHits = recent.hits
-    recentFlights = recent.flights
-    if (recent.flights === 0) {
-      warnings.push(
-        origin && destination
-          ? 'OpenSky has no completed flights of that type on that route in the last two UTC days. Today’s landings appear after the overnight batch.'
-          : destination
-            ? 'OpenSky has no completed arrivals of that type in the last two UTC days. Today’s landings appear after the overnight batch.'
-            : 'OpenSky has no completed departures of that type in the last two UTC days. Today’s departures appear after the overnight batch.',
-      )
-    }
-  } else if (live.matched === 0 && !input.fr24Token?.trim()) {
+  if (live.matched === 0 && !input.fr24Token?.trim()) {
     warnings.push(
       'Add a Flightradar24 API token in settings to include flights that already landed today or yesterday.',
     )
@@ -119,9 +99,9 @@ export async function searchCallsigns(input: {
   }
 
   const cached = loadCachedHits(aircraft, origin, destination).filter((hit) =>
-    hit.sources.some((source) => source === 'opensky' || source === 'fr24'),
+    hit.sources.some((source) => source === 'fr24'),
   )
-  const hits = mergeHits(cached, mergeHits(live.hits, mergeHits(recentHits, fr24Hits)))
+  const hits = mergeHits(cached, mergeHits(live.hits, fr24Hits))
   const missingIata = hits.filter((hit) => !hit.iata).map((hit) => hit.callsign)
   if (missingIata.length) {
     input.onProgress?.('Looking up IATA flight numbers…')
@@ -141,7 +121,6 @@ export async function searchCallsigns(input: {
     hits,
     liveChecked: live.checked,
     liveMatched: live.matched,
-    recentFlights,
     fr24Days,
     fr24Flights,
     truncated,

@@ -1,4 +1,4 @@
-export type SearchSource = 'live' | 'opensky' | 'fr24' | 'cache'
+export type SearchSource = 'live' | 'fr24' | 'cache'
 
 export type CallsignHit = {
   callsign: string
@@ -20,7 +20,6 @@ export type SearchResult = {
   hits: CallsignHit[]
   liveChecked: number
   liveMatched: number
-  recentFlights?: number
   fr24Days?: number
   fr24Flights?: number
   truncated?: boolean

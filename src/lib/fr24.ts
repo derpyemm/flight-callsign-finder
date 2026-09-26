@@ -19,6 +19,8 @@ type Fr24Summary = {
   data?: Fr24Flight[]
 }
 
+const MAX_PER_MINUTE = 9
+
 function daySlices(lookbackDays: number): { from: string; to: string }[] {
   const slices: { from: string; to: string }[] = []
   const days = Math.min(Math.max(lookbackDays, 1), 30)
@@ -63,6 +65,23 @@ async function fetchSummary(token: string, params: URLSearchParams): Promise<Fr2
   return json.data ?? []
 }
 
+function summaryParams(
+  slice: { from: string; to: string },
+  types: string[],
+  airports?: string,
+  routes?: string,
+): URLSearchParams {
+  const params = new URLSearchParams({
+    flight_datetime_from: slice.from,
+    flight_datetime_to: slice.to,
+    aircraft: types.join(','),
+    limit: '20',
+  })
+  if (airports) params.set('airports', airports)
+  if (routes) params.set('routes', routes)
+  return params
+}
+
 export async function searchFr24Flights(
   token: string,
   types: string[],
@@ -75,44 +94,12 @@ export async function searchFr24Flights(
   const hits: CallsignHit[] = []
   let flights = 0
   let truncated = false
+  let done = 0
   const bothEnds = Boolean(origin && destination)
   let airports = bothEnds ? undefined : destination ? `inbound:${destination}` : `outbound:${origin}`
   let routes = bothEnds ? `${origin}-${destination}` : undefined
 
-  for (let index = 0; index < slices.length; index += 1) {
-    const slice = slices[index]
-    const params = new URLSearchParams({
-      flight_datetime_from: slice.from,
-      flight_datetime_to: slice.to,
-      aircraft: types.join(','),
-      limit: '20',
-    })
-    if (airports) params.set('airports', airports)
-    if (routes) params.set('routes', routes)
-
-    let rows: Fr24Flight[]
-    try {
-      rows = await fetchSummary(token, params)
-    } catch (error) {
-      if (index === 0 && airports?.startsWith('inbound:') && destination) {
-        airports = destination
-        params.set('airports', destination)
-        rows = await fetchSummary(token, params)
-      } else if (index === 0 && airports?.startsWith('outbound:') && origin) {
-        airports = origin
-        params.set('airports', origin)
-        rows = await fetchSummary(token, params)
-      } else if (index === 0 && routes && destination) {
-        routes = undefined
-        airports = `inbound:${destination}`
-        params.delete('routes')
-        params.set('airports', airports)
-        rows = await fetchSummary(token, params)
-      } else {
-        throw error
-      }
-    }
-
+  const ingest = (rows: Fr24Flight[]) => {
     const matched = rows.filter((row) => {
       const dest = destinationOf(row)
       const from = originOf(row)
@@ -141,9 +128,42 @@ export async function searchFr24Flights(
       })
     }
 
-    onProgress?.(index + 1, slices.length)
-    if (index < slices.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 6500))
+    done += 1
+    onProgress?.(done, slices.length)
+  }
+
+  const fetchSlice = (slice: { from: string; to: string }) =>
+    fetchSummary(token, summaryParams(slice, types, airports, routes))
+
+  let firstRows: Fr24Flight[]
+  try {
+    firstRows = await fetchSlice(slices[0])
+  } catch (error) {
+    if (airports?.startsWith('inbound:') && destination) {
+      airports = destination
+      firstRows = await fetchSlice(slices[0])
+    } else if (airports?.startsWith('outbound:') && origin) {
+      airports = origin
+      firstRows = await fetchSlice(slices[0])
+    } else if (routes && destination) {
+      routes = undefined
+      airports = `inbound:${destination}`
+      firstRows = await fetchSlice(slices[0])
+    } else {
+      throw error
+    }
+  }
+  ingest(firstRows)
+
+  const remaining = slices.slice(1)
+  for (let start = 0; start < remaining.length; start += MAX_PER_MINUTE) {
+    const batch = remaining.slice(start, start + MAX_PER_MINUTE)
+    const batchStarted = Date.now()
+    const rowsList = await Promise.all(batch.map((slice) => fetchSlice(slice)))
+    for (const rows of rowsList) ingest(rows)
+    if (start + MAX_PER_MINUTE < remaining.length) {
+      const wait = 60_000 - (Date.now() - batchStarted)
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
     }
   }
 

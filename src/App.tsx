@@ -4,8 +4,6 @@ import { formatDepartureUtc, formatDuration, formatFlightDay, formatRoute, googl
 import type { SearchResult } from './types'
 
 const TOKEN_KEY = 'fr24-api-token'
-const OPENSKY_ID_KEY = 'opensky-client-id'
-const OPENSKY_SECRET_KEY = 'opensky-client-secret'
 function loadToken() {
   return localStorage.getItem(TOKEN_KEY) ?? ''
 }
@@ -23,8 +21,6 @@ export default function App() {
   const [destination, setDestination] = useState('')
   const [includeFamily, setIncludeFamily] = useState(true)
   const [token, setToken] = useState(loadToken)
-  const [openskyId, setOpenskyId] = useState(() => localStorage.getItem(OPENSKY_ID_KEY) ?? '')
-  const [openskySecret, setOpenskySecret] = useState(() => localStorage.getItem(OPENSKY_SECRET_KEY) ?? '')
   const [lookbackDays, setLookbackDays] = useState(2)
   const [showSettings, setShowSettings] = useState(() => !loadToken().trim())
   const [status, setStatus] = useState('')
@@ -55,8 +51,6 @@ export default function App() {
         origin,
         destination,
         includeFamily,
-        openskyClientId: openskyId,
-        openskyClientSecret: openskySecret,
         fr24Token: fr24Token || undefined,
         fr24LookbackDays: fr24Token ? lookbackDays : undefined,
         onProgress: setStatus,
@@ -73,8 +67,8 @@ export default function App() {
 
   function saveToken() {
     localStorage.setItem(TOKEN_KEY, token.trim())
-    localStorage.setItem(OPENSKY_ID_KEY, openskyId.trim())
-    localStorage.setItem(OPENSKY_SECRET_KEY, openskySecret.trim())
+    localStorage.removeItem('opensky-client-id')
+    localStorage.removeItem('opensky-client-secret')
     setShowSettings(false)
   }
 
@@ -121,32 +115,8 @@ export default function App() {
             API token from fr24api.flightradar24.com — that is what sees today's and yesterday's
             landed flights.
           </p>
-          <label>
-            OpenSky client ID
-            <input
-              className="plain"
-              type="text"
-              autoComplete="off"
-              value={openskyId}
-              onChange={(event) => setOpenskyId(event.target.value)}
-              placeholder="Optional"
-            />
-          </label>
-          <label>
-            OpenSky client secret
-            <input
-              type="password"
-              autoComplete="off"
-              value={openskySecret}
-              onChange={(event) => setOpenskySecret(event.target.value)}
-            />
-          </label>
-          <p className="hint">
-            Optional. Free OpenSky arrivals can fill in extra days, but today usually appears only
-            after the overnight batch.
-          </p>
           <button type="button" onClick={saveToken}>
-            Save keys
+            Save token
           </button>
         </section>
       ) : null}
@@ -223,7 +193,6 @@ export default function App() {
           <p className="meta">
             {[
               result.liveMatched ? `Live: ${result.liveMatched} matching now` : '',
-              result.recentFlights != null ? `OpenSky: ${result.recentFlights} recent flights` : '',
               result.fr24Days ? `FR24: ${result.fr24Flights ?? 0} flights over ${result.fr24Days} days` : '',
               result.hits.length
                 ? 'Block is actual takeoff-to-landing; click it for Google’s scheduled time.'
