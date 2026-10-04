@@ -258,6 +258,7 @@ class SimbriefGenerator(QWidget):
 
         self._hit: CallsignHit | None = None
         self._landing = ""
+        self._taxiout: int | None = None
         self._simbrief_id = ""
         self._previous_id = ""
         self._clicked = False
@@ -302,7 +303,7 @@ class SimbriefGenerator(QWidget):
     def busy(self) -> bool:
         return self._busy
 
-    def start(self, hit: CallsignHit, landing: str, simbrief_id: str) -> None:
+    def start(self, hit: CallsignHit, landing: str, simbrief_id: str, taxiout: int | None = None) -> None:
         if not webengine_available() or self.view is None:
             self.failed.emit("SimBrief generate needs the app’s built-in browser (WebEngine).")
             return
@@ -312,6 +313,7 @@ class SimbriefGenerator(QWidget):
             return
         self._hit = hit
         self._landing = landing
+        self._taxiout = taxiout
         self._simbrief_id = simbrief_id
         self._previous_id = ""
         self._clicked = False
@@ -394,7 +396,7 @@ class SimbriefGenerator(QWidget):
         if not landing_at or not self.view:
             self._fail("Could not start the SimBrief reference plan.")
             return
-        self.view.load(QUrl(simbrief_generate_form_url(self._hit, seed_offblock(landing_at))))
+        self.view.load(QUrl(simbrief_generate_form_url(self._hit, seed_offblock(landing_at), self._taxiout)))
         self._tick.start()
 
     def _on_load(self, ok: bool) -> None:
@@ -466,7 +468,7 @@ class SimbriefGenerator(QWidget):
         if latest_id == self._previous_id or not ofp_matches_route(ofp, self._hit):
             return
         try:
-            url = timed_dispatch_url(self._hit, self._landing, ofp)
+            url = timed_dispatch_url(self._hit, self._landing, ofp, self._taxiout)
         except Exception as exc:
             self._fail(str(exc) or "Could not time the SimBrief off-block.")
             return

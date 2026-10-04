@@ -35,7 +35,7 @@ _SIMBRIEF_MONTHS = (
     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 )
 _MONTH_NUM = {name: index + 1 for index, name in enumerate(_SIMBRIEF_MONTHS)}
-TAXI_OUT_MINUTES = 20
+_TAXI_OUT = re.compile(r"^\d{1,2}$")
 
 
 def icao_airline(callsign: str) -> str | None:
@@ -85,6 +85,18 @@ def parse_landing_utc(text: str, now: datetime | None = None) -> datetime | None
     raise ValueError("Enter a landing time like 18:30, or 4 Oct 18:30.")
 
 
+def parse_taxi_out(text: str) -> int | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if not _TAXI_OUT.fullmatch(raw):
+        raise ValueError("Taxi-out must be minutes, such as 12, or left empty for SimBrief’s default.")
+    minutes = int(raw)
+    if minutes > 90:
+        raise ValueError("Taxi-out must be between 0 and 90 minutes, or empty for SimBrief’s default.")
+    return minutes
+
+
 def _aware(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         raise ValueError("Landing time must be a valid UTC clock, such as 18:30.")
@@ -97,10 +109,17 @@ def simbrief_date(value: datetime) -> str:
 
 def shift_offblock(est_out: datetime, est_on: datetime, desired_on: datetime) -> datetime:
     minutes = round((desired_on - est_on).total_seconds() / 60)
+    predicted = est_on + timedelta(minutes=minutes)
+    if timedelta(0) < (predicted - desired_on) < timedelta(seconds=30):
+        minutes += 1
     return est_out + timedelta(minutes=minutes)
 
 
-def simbrief_params(hit: CallsignHit, offblock: datetime | None = None) -> dict[str, str]:
+def simbrief_params(
+    hit: CallsignHit,
+    offblock: datetime | None = None,
+    taxiout: int | None = None,
+) -> dict[str, str]:
     origin = (hit.origin or "").upper()
     destination = (hit.destination or "").upper()
     aircraft = (hit.type or "").upper()
@@ -125,13 +144,22 @@ def simbrief_params(hit: CallsignHit, offblock: datetime | None = None) -> dict[
         params["date"] = simbrief_date(offblock)
         params["deph"] = str(offblock.hour)
         params["depm"] = f"{offblock.minute:02d}"
-        params["taxiout"] = str(TAXI_OUT_MINUTES)
+    if taxiout is not None:
+        params["taxiout"] = str(taxiout)
     return params
 
 
-def simbrief_dispatch_url(hit: CallsignHit, offblock: datetime | None = None) -> str:
-    return f"{DISPATCH_URL}?{urlencode(simbrief_params(hit, offblock))}"
+def simbrief_dispatch_url(
+    hit: CallsignHit,
+    offblock: datetime | None = None,
+    taxiout: int | None = None,
+) -> str:
+    return f"{DISPATCH_URL}?{urlencode(simbrief_params(hit, offblock, taxiout))}"
 
 
-def simbrief_generate_form_url(hit: CallsignHit, offblock: datetime) -> str:
-    return f"{GENERATE_FORM_URL}?{urlencode(simbrief_params(hit, offblock))}"
+def simbrief_generate_form_url(
+    hit: CallsignHit,
+    offblock: datetime,
+    taxiout: int | None = None,
+) -> str:
+    return f"{GENERATE_FORM_URL}?{urlencode(simbrief_params(hit, offblock, taxiout))}"

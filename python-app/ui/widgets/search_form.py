@@ -52,6 +52,13 @@ class SearchForm(QFrame):
         landing_hint.setObjectName("hint")
         landing_hint.setWordWrap(True)
 
+        self.taxi_out = QLineEdit()
+        self.taxi_out.setMaxLength(2)
+        self.taxi_out.setPlaceholderText("Default")
+        taxi_hint = QLabel("Taxi time in minutes. Leave empty to keep SimBrief’s standard taxi-out.")
+        taxi_hint.setObjectName("hint")
+        taxi_hint.setWordWrap(True)
+
         self.search_button = QPushButton("Search")
         self.search_button.clicked.connect(self.submitted.emit)
 
@@ -66,6 +73,8 @@ class SearchForm(QFrame):
         layout.addWidget(self.include_family)
         layout.addLayout(_labeled_field("LANDING UTC", self.landing_utc))
         layout.addWidget(landing_hint)
+        layout.addLayout(_labeled_field("TAXI OUT", self.taxi_out))
+        layout.addWidget(taxi_hint)
         layout.addWidget(self.search_button)
         layout.addStretch(1)
 
@@ -75,6 +84,9 @@ class SearchForm(QFrame):
 
     def landing_time(self) -> str:
         return self.landing_utc.text().strip()
+
+    def taxi_out_minutes(self) -> str:
+        return self.taxi_out.text().strip()
 
     def values(self) -> tuple[str, str, str, bool, int]:
         return (

@@ -41,15 +41,25 @@ def seed_offblock(landing: datetime) -> datetime:
     return landing - timedelta(hours=2)
 
 
-def reference_dispatch_url(hit: CallsignHit, landing_text: str) -> str:
+def reference_dispatch_url(
+    hit: CallsignHit,
+    landing_text: str,
+    taxiout: int | None = None,
+) -> str:
     landing = parse_landing_utc(landing_text)
     if not landing:
         raise ValueError("Enter a landing time like 18:30, or 4 Oct 18:30.")
-    return simbrief_generate_form_url(hit, seed_offblock(landing))
+    return simbrief_generate_form_url(hit, seed_offblock(landing), taxiout)
 
 
-def try_generate_plan(hit: CallsignHit, offblock: datetime, simbrief_id: str, previous_id: str) -> dict[str, Any] | None:
-    params = {**simbrief_params(hit, offblock), **user_params(simbrief_id)}
+def try_generate_plan(
+    hit: CallsignHit,
+    offblock: datetime,
+    simbrief_id: str,
+    previous_id: str,
+    taxiout: int | None = None,
+) -> dict[str, Any] | None:
+    params = {**simbrief_params(hit, offblock, taxiout), **user_params(simbrief_id)}
     try:
         requests.get(
             GENERATE_URL,
@@ -113,12 +123,17 @@ def ofp_matches_route(ofp: dict[str, Any], hit: CallsignHit) -> bool:
     return _ofp_route(ofp) == ((hit.origin or "").upper(), (hit.destination or "").upper())
 
 
-def timed_dispatch_url(hit: CallsignHit, landing_text: str, ofp: dict[str, Any]) -> str:
+def timed_dispatch_url(
+    hit: CallsignHit,
+    landing_text: str,
+    ofp: dict[str, Any],
+    taxiout: int | None = None,
+) -> str:
     landing = parse_landing_utc(landing_text)
     if not landing:
-        return simbrief_dispatch_url(hit)
+        return simbrief_dispatch_url(hit, taxiout=taxiout)
     est_out, est_on = ofp_landing_times(ofp)
-    return simbrief_dispatch_url(hit, offblock=shift_offblock(est_out, est_on, landing))
+    return simbrief_dispatch_url(hit, offblock=shift_offblock(est_out, est_on, landing), taxiout=taxiout)
 
 
 def ofp_from_reference(hit: CallsignHit, simbrief_id: str, previous_id: str) -> dict[str, Any]:

@@ -15,7 +15,7 @@ from ui.widgets.search_form import SearchForm
 from ui.widgets.settings_drawer import SettingsDrawer
 from ui.widgets.simbrief_generator import SimbriefGenerator
 from ui.widgets.status_panel import StatusPanel
-from utils.simbrief import parse_landing_utc, simbrief_dispatch_url
+from utils.simbrief import parse_landing_utc, parse_taxi_out, simbrief_dispatch_url
 
 
 class SearchWorker(QObject):
@@ -180,8 +180,9 @@ class MainWindow(QWidget):
         assert isinstance(hit, CallsignHit)
         landing = self.search_form.landing_time()
         try:
+            taxiout = parse_taxi_out(self.search_form.taxi_out_minutes())
             if not parse_landing_utc(landing):
-                webbrowser.open(simbrief_dispatch_url(hit))
+                webbrowser.open(simbrief_dispatch_url(hit, taxiout=taxiout))
                 return
         except ValueError as exc:
             QMessageBox.warning(self, "SimBrief", str(exc))
@@ -198,7 +199,7 @@ class MainWindow(QWidget):
         if self.simbrief.busy():
             return
         self.board.set_status("Generating a SimBrief plan to read the landing time…")
-        self.simbrief.start(hit, landing, settings.simbrief_id)
+        self.simbrief.start(hit, landing, settings.simbrief_id, taxiout)
 
     def _on_simbrief_url(self, url: str) -> None:
         webbrowser.open(url)
