@@ -1,0 +1,354 @@
+from __future__ import annotations
+
+import json
+
+from PySide6.QtCore import QObject, QThread, Qt, Signal
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+
+from clients.airport_client import lookup_airports
+from core.models import CallsignHit
+
+try:
+    from PySide6.QtWebEngineCore import QWebEngineSettings
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except ImportError:  # pragma: no cover
+    QWebEngineSettings = None
+    QWebEngineView = None
+
+
+MAP_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+  <style>
+    html, body, #map { height: 100%; margin: 0; background: #0e0e0e; }
+    .maplibregl-ctrl-attrib { background: rgba(20,20,20,0.72); color: #8a8a8a; }
+    .maplibregl-ctrl-attrib a { color: #b0b0b0; }
+    .maplibregl-ctrl-group { background: #2b2b2b; border: 1px solid #5a5a5a; }
+    .maplibregl-ctrl-group button { background-color: #2b2b2b; }
+    .maplibregl-ctrl button + button { border-top-color: #3d3d3d; }
+    .maplibregl-popup-content {
+      background: #2b2b2b; color: #e8e8e8; border: 1px solid #5a5a5a;
+      padding: 4px 8px; font: 12px Segoe UI, sans-serif;
+    }
+    .maplibregl-popup-tip { border-top-color: #2b2b2b; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+const empty = { type: 'FeatureCollection', features: [] };
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/dark',
+  center: [8, 50.5],
+  zoom: 3.5
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+let pending = null;
+
+function gc(a, b, steps) {
+  const toRad = Math.PI / 180;
+  const lat1 = a[0] * toRad, lon1 = a[1] * toRad;
+  const lat2 = b[0] * toRad, lon2 = b[1] * toRad;
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.pow(Math.sin((lat2 - lat1) / 2), 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin((lon2 - lon1) / 2), 2)
+  ));
+  if (!d) return [[a[1], a[0]], [b[1], b[0]]];
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const A = Math.sin((1 - f) * d) / Math.sin(d);
+    const B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+    const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+    const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+    pts.push([Math.atan2(y, x) / toRad, Math.atan2(z, Math.sqrt(x * x + y * y)) / toRad]);
+  }
+  return pts;
+}
+
+function hubIcao(routes) {
+  const counts = {};
+  routes.forEach((route) => {
+    counts[route.origin] = (counts[route.origin] || 0) + 1;
+    counts[route.destination] = (counts[route.destination] || 0) + 1;
+  });
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
+function ensureLayers(focus) {
+  if (!map.getSource('routes')) {
+    map.addSource('routes', { type: 'geojson', data: empty });
+    map.addSource('airports', { type: 'geojson', data: empty });
+    map.addLayer({
+      id: 'routes', type: 'line', source: 'routes',
+      paint: { 'line-color': '#e53935', 'line-width': 1.4, 'line-opacity': 0.9 }
+    });
+    map.addLayer({
+      id: 'airports', type: 'circle', source: 'airports',
+      paint: {
+        'circle-radius': ['case', ['get', 'hub'], 6, 4],
+        'circle-color': ['case', ['get', 'hub'], '#ffffff', '#7eb6ff'],
+        'circle-stroke-width': 1,
+        'circle-stroke-color': ['case', ['get', 'hub'], '#d0d0d0', '#4a90d9']
+      }
+    });
+    map.on('mouseenter', 'airports', (event) => {
+      map.getCanvas().style.cursor = 'pointer';
+      const feature = event.features[0];
+      popup.setLngLat(feature.geometry.coordinates).setText(feature.properties.code).addTo(map);
+    });
+    map.on('mouseleave', 'airports', () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+    });
+    map.on('mouseenter', 'routes', (event) => {
+      const label = event.features[0].properties.label;
+      if (label) popup.setLngLat(event.lngLat).setText(label).addTo(map);
+    });
+    map.on('mouseleave', 'routes', () => popup.remove());
+  }
+  map.setPaintProperty('routes', 'line-color', focus ? '#ff8a80' : '#e53935');
+  map.setPaintProperty('routes', 'line-width', focus ? 3 : 1.4);
+}
+
+function setRoutes(payload) {
+  if (!map.loaded()) {
+    pending = payload;
+    return true;
+  }
+  pending = null;
+  map.resize();
+  ensureLayers(Boolean(payload.focus));
+  const airports = payload.airports || {};
+  const routes = payload.routes || [];
+  const hub = hubIcao(routes);
+  const lineFeatures = [];
+  const pointFeatures = [];
+  const marked = {};
+  const bounds = new maplibregl.LngLatBounds();
+  routes.forEach((route) => {
+    const start = airports[route.origin];
+    const end = airports[route.destination];
+    if (!start || !end) return;
+    const coords = gc(start, end, 32);
+    lineFeatures.push({
+      type: 'Feature',
+      properties: { label: route.label || '' },
+      geometry: { type: 'LineString', coordinates: coords }
+    });
+    coords.forEach((coord) => bounds.extend(coord));
+    [[route.origin, start], [route.destination, end]].forEach(([code, latlon]) => {
+      if (marked[code]) return;
+      marked[code] = true;
+      pointFeatures.push({
+        type: 'Feature',
+        properties: { code, hub: code === hub },
+        geometry: { type: 'Point', coordinates: [latlon[1], latlon[0]] }
+      });
+    });
+  });
+  map.getSource('routes').setData({ type: 'FeatureCollection', features: lineFeatures });
+  map.getSource('airports').setData({ type: 'FeatureCollection', features: pointFeatures });
+  if (lineFeatures.length) map.fitBounds(bounds, { padding: 36, maxZoom: 7, duration: 0 });
+  return true;
+}
+window.setRoutes = setRoutes;
+window.mapResize = () => map.resize();
+map.on('load', () => { if (pending) setRoutes(pending); });
+</script>
+</body>
+</html>
+"""
+
+
+class _AirportWorker(QObject):
+    finished = Signal(object, int)
+
+    def __init__(self, icaos: list[str], token: int) -> None:
+        super().__init__()
+        self.icaos = icaos
+        self.token = token
+
+    def run(self) -> None:
+        try:
+            found = lookup_airports(self.icaos)
+        except Exception:
+            found = {}
+        self.finished.emit(found, self.token)
+
+
+class RouteMap(QFrame):
+    show_all_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("mapFrame")
+        self.setMinimumHeight(240)
+        self._hits: list[CallsignHit] = []
+        self._selected: CallsignHit | None = None
+        self._airports: dict[str, tuple[float, float]] = {}
+        self._pending: dict | None = None
+        self._ready = False
+        self._lookup = 0
+        self._thread: QThread | None = None
+        self._worker: _AirportWorker | None = None
+
+        title = QLabel("ROUTE MAP")
+        title.setObjectName("sectionLabel")
+        self.show_all = QPushButton("Show all routes")
+        self.show_all.setObjectName("compact")
+        self.show_all.setEnabled(False)
+        self.show_all.clicked.connect(self.show_all_requested.emit)
+        self.hint = QLabel("")
+        self.hint.setObjectName("hint")
+        self.hint.setWordWrap(True)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.addWidget(title, 1, Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(self.show_all, 0, Qt.AlignmentFlag.AlignRight)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(6)
+        layout.addLayout(header)
+        layout.addWidget(self.hint)
+
+        if QWebEngineView is None:
+            missing = QLabel("Install PySide6-Addons to show the dark OpenStreetMap view.")
+            missing.setObjectName("hint")
+            layout.addWidget(missing, 1)
+            self.view = None
+            return
+
+        self.view = QWebEngineView(self)
+        self.view.setMinimumHeight(220)
+        if QWebEngineSettings is not None:
+            settings = self.view.settings()
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        self.view.loadFinished.connect(self._on_ready)
+        self.view.setHtml(MAP_HTML)
+        layout.addWidget(self.view, 1)
+
+    def clear(self) -> None:
+        self._hits = []
+        self._selected = None
+        self.show_all.setEnabled(False)
+        self.hint.clear()
+        self._push_routes()
+
+    def show_hits(self, hits: list[CallsignHit], selected: CallsignHit | None = None) -> None:
+        self._hits = hits
+        self._selected = selected
+        self.show_all.setEnabled(selected is not None and bool(hits))
+        icaos = sorted({code for hit in hits for code in (hit.origin, hit.destination) if code})
+        if not icaos:
+            self.hint.clear()
+            self._push_routes()
+            return
+        missing = [code for code in icaos if code not in self._airports]
+        if not missing:
+            self._push_routes()
+            return
+        self.hint.setText("Placing airports on the map…")
+        self._lookup += 1
+        token = self._lookup
+        if self._thread and self._thread.isRunning():
+            self._thread.quit()
+        self._thread = QThread(self)
+        self._worker = _AirportWorker(missing, token)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_airports)
+        self._worker.finished.connect(self._thread.quit)
+        self._thread.finished.connect(self._cleanup)
+        self._thread.start()
+
+    def _on_airports(self, found: object, token: int) -> None:
+        if token != self._lookup:
+            return
+        if isinstance(found, dict):
+            self._airports.update(found)
+        self._push_routes()
+
+    def _push_routes(self) -> None:
+        source = [self._selected] if self._selected else self._hits
+        routes = []
+        seen: set[tuple[str, str, str]] = set()
+        wanted: set[str] = set()
+        for hit in source:
+            if not hit or not hit.origin or not hit.destination:
+                continue
+            key = (hit.origin, hit.destination, hit.callsign if self._selected else "")
+            if key in seen:
+                continue
+            seen.add(key)
+            wanted.add(hit.origin)
+            wanted.add(hit.destination)
+            routes.append(
+                {
+                    "origin": hit.origin,
+                    "destination": hit.destination,
+                    "label": f"{hit.callsign}  {hit.origin} → {hit.destination}",
+                }
+            )
+        missing = sorted(code for code in wanted if code not in self._airports)
+        if not routes:
+            self.hint.setText("No airport coordinates for these flights." if self._hits else "")
+        elif missing:
+            self.hint.setText("Could not place " + ", ".join(missing) + ".")
+        elif self._selected:
+            self.hint.setText(f"{self._selected.callsign}  {self._selected.origin} → {self._selected.destination}")
+        else:
+            noun = "route" if len(routes) == 1 else "routes"
+            self.hint.setText(f"{len(routes)} {noun} on the map. Select a flight to isolate one.")
+
+        payload = {
+            "airports": {icao: [lat, lon] for icao, (lat, lon) in self._airports.items()},
+            "routes": routes,
+            "focus": bool(self._selected),
+        }
+        if not self.view:
+            return
+        if not self._ready:
+            self._pending = payload
+            return
+        self._send(payload)
+
+    def _send(self, payload: dict) -> None:
+        if not self.view:
+            return
+        script = f"window.setRoutes ? setRoutes({json.dumps(payload)}) : false;"
+        self.view.page().runJavaScript(script, self._after_js)
+
+    def _after_js(self, ok: object) -> None:
+        if not ok and self._pending is None:
+            return
+
+    def _on_ready(self, ok: bool) -> None:
+        self._ready = bool(ok)
+        if self._pending is not None:
+            payload = self._pending
+            self._pending = None
+            self._send(payload)
+        elif self._hits:
+            self._push_routes()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if self.view and self._ready:
+            self.view.page().runJavaScript("if (window.mapResize) mapResize();")
+
+    def _cleanup(self) -> None:
+        if self._worker:
+            self._worker.deleteLater()
+            self._worker = None
+        if self._thread:
+            self._thread.deleteLater()
+            self._thread = None
