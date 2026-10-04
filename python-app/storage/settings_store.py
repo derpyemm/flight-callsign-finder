@@ -19,12 +19,17 @@ def load_settings() -> Fr24Settings:
         lookback = int(raw.get("lookback_days", 2))
     except (TypeError, ValueError):
         lookback = 2
-    return Fr24Settings(token=token, lookback_days=max(1, min(lookback, 30)))
+    return Fr24Settings(
+        token=token,
+        lookback_days=max(1, min(lookback, 30)),
+        simbrief_id=str(raw.get("simbrief_id", "") or ""),
+    )
 
 
 def save_settings(settings: Fr24Settings) -> None:
     payload = {
         "token": settings.token.strip(),
         "lookback_days": max(1, min(settings.lookback_days, 30)),
+        "simbrief_id": settings.simbrief_id.strip(),
     }
     settings_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")

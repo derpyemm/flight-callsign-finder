@@ -43,6 +43,15 @@ class SearchForm(QFrame):
         self.include_family = QCheckBox("Include family variants")
         self.include_family.setChecked(True)
 
+        self.landing_utc = QLineEdit()
+        self.landing_utc.setPlaceholderText("Optional, 18:30")
+        landing_hint = QLabel(
+            "If set, a reference plan is generated in the background. Only the timed "
+            "dispatch page is opened afterwards."
+        )
+        landing_hint.setObjectName("hint")
+        landing_hint.setWordWrap(True)
+
         self.search_button = QPushButton("Search")
         self.search_button.clicked.connect(self.submitted.emit)
 
@@ -55,12 +64,17 @@ class SearchForm(QFrame):
         layout.addLayout(_labeled_field("ARRIVAL", self.destination))
         layout.addLayout(_labeled_field("HISTORY DAYS", self.lookback))
         layout.addWidget(self.include_family)
+        layout.addLayout(_labeled_field("LANDING UTC", self.landing_utc))
+        layout.addWidget(landing_hint)
         layout.addWidget(self.search_button)
         layout.addStretch(1)
 
     def set_busy(self, busy: bool) -> None:
         self.search_button.setEnabled(not busy)
         self.search_button.setText("Searching…" if busy else "Search")
+
+    def landing_time(self) -> str:
+        return self.landing_utc.text().strip()
 
     def values(self) -> tuple[str, str, str, bool, int]:
         return (

@@ -38,3 +38,4 @@ class SearchResult:
 class Fr24Settings:
     token: str = ""
     lookback_days: int = 2
+    simbrief_id: str = ""

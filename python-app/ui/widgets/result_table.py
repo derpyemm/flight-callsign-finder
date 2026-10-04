@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import webbrowser
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -29,13 +28,12 @@ from utils.formatters import (
     google_flight_url,
     route_summary,
 )
-from utils.simbrief import simbrief_dispatch_url
-
-
 HEADERS = ["CALLSIGN", "IATA", "BLOCK", "TYPE", "ROUTE", "DAY", "DEP UTC", ""]
 
 
 class ResultBoard(QFrame):
+    simbrief_requested = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("board")
@@ -230,7 +228,4 @@ class ResultBoard(QFrame):
             clipboard.setText(text)
 
     def _open_simbrief(self, hit: CallsignHit) -> None:
-        try:
-            webbrowser.open(simbrief_dispatch_url(hit))
-        except ValueError as exc:
-            QMessageBox.warning(self, "SimBrief", str(exc))
+        self.simbrief_requested.emit(hit)

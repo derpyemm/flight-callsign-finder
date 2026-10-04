@@ -18,6 +18,8 @@ def _network_error(url: str, exc: requests.RequestException) -> RuntimeError:
         host = "Flightradar24"
     elif "adsbdb" in url:
         host = "the IATA lookup service"
+    elif "simbrief.com" in url:
+        host = "SimBrief"
     elif "openstreetmap.org" in url or "openflights" in url:
         host = "the airport map catalog"
     elif "adsb.lol" in url:

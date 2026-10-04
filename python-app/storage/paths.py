@@ -30,3 +30,9 @@ def airport_cache_path() -> Path:
 
 def airport_catalog_path() -> Path:
     return app_data_dir() / "airports-catalog.json"
+
+
+def simbrief_web_dir() -> Path:
+    path = app_data_dir() / "simbrief-web"
+    path.mkdir(parents=True, exist_ok=True)
+    return path

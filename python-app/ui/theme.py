@@ -115,6 +115,19 @@ QPushButton#compact {
     padding: 4px 10px;
 }
 
+QProgressBar {
+    background: #1f1f1f;
+    border: 1px solid #4a4a4a;
+    border-radius: 2px;
+    min-height: 8px;
+    max-height: 8px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: #6a6a6a;
+}
+
 QCheckBox {
     color: #e8e8e8;
     spacing: 8px;

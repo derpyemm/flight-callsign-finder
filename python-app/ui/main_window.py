@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+import webbrowser
 
-from core.models import Fr24Settings, SearchResult
+from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+
+from core.models import CallsignHit, Fr24Settings, SearchResult
 from core.search_service import search_callsigns
 from storage.settings_store import load_settings, save_settings
 from ui.resources import app_icon
@@ -11,7 +13,9 @@ from ui.theme import STYLESHEET
 from ui.widgets.result_table import ResultBoard
 from ui.widgets.search_form import SearchForm
 from ui.widgets.settings_drawer import SettingsDrawer
+from ui.widgets.simbrief_generator import SimbriefGenerator
 from ui.widgets.status_panel import StatusPanel
+from utils.simbrief import parse_landing_utc, simbrief_dispatch_url
 
 
 class SearchWorker(QObject):
@@ -69,11 +73,16 @@ class MainWindow(QWidget):
         self.search_form = SearchForm()
         self.settings_drawer = SettingsDrawer()
         self.board = ResultBoard()
+        self.simbrief = SimbriefGenerator(self)
+        self.simbrief.succeeded.connect(self._on_simbrief_url)
+        self.simbrief.failed.connect(self._on_simbrief_failed)
+        self.simbrief.progress.connect(self.board.set_status)
 
-        self.settings_drawer.set_token(self.settings.token)
+        self.settings_drawer.set_values(self.settings.token, self.settings.simbrief_id)
         self.search_form.lookback.setValue(self.settings.lookback_days)
         self.search_form.submitted.connect(self._on_search)
-        self.settings_drawer.saved.connect(self._on_save_token)
+        self.settings_drawer.saved.connect(self._on_save_settings)
+        self.board.simbrief_requested.connect(self._open_simbrief)
         self.status_panel.toggle_settings.connect(self._toggle_settings)
 
         left = QWidget()
@@ -115,11 +124,18 @@ class MainWindow(QWidget):
     def _toggle_settings(self) -> None:
         self.settings_drawer.setVisible(not self.settings_drawer.isVisible())
 
-    def _on_save_token(self, token: str) -> None:
-        self.settings = Fr24Settings(token=token, lookback_days=self.search_form.lookback.value())
+    def _snapshot_settings(self) -> Fr24Settings:
+        return Fr24Settings(
+            token=self._token(),
+            lookback_days=self.search_form.lookback.value(),
+            simbrief_id=self.settings_drawer.simbrief_id.text().strip(),
+        )
+
+    def _on_save_settings(self) -> None:
+        self.settings = self._snapshot_settings()
         save_settings(self.settings)
         self.settings_drawer.status.set_ok("Saved.")
-        self._sync_settings_visibility(force_open=not bool(token))
+        self._sync_settings_visibility(force_open=not bool(self.settings.token))
 
     def _on_search(self) -> None:
         if self._thread and self._thread.isRunning():
@@ -131,7 +147,7 @@ class MainWindow(QWidget):
             self.board.set_error("Add a Flightradar24 API token before searching.")
             self.status_panel.set_states(fr24=False, token=False)
             return
-        self.settings = Fr24Settings(token=token, lookback_days=lookback)
+        self.settings = self._snapshot_settings()
         save_settings(self.settings)
         self.search_form.set_busy(True)
         self.board.set_status("Searching…")
@@ -160,6 +176,39 @@ class MainWindow(QWidget):
         self.search_form.set_busy(False)
         self.status_panel.set_states(fr24=False, token=bool(self._token()))
 
+    def _open_simbrief(self, hit: object) -> None:
+        assert isinstance(hit, CallsignHit)
+        landing = self.search_form.landing_time()
+        try:
+            if not parse_landing_utc(landing):
+                webbrowser.open(simbrief_dispatch_url(hit))
+                return
+        except ValueError as exc:
+            QMessageBox.warning(self, "SimBrief", str(exc))
+            return
+        settings = self._snapshot_settings()
+        if not settings.simbrief_id:
+            self.settings_drawer.setVisible(True)
+            QMessageBox.warning(
+                self,
+                "SimBrief",
+                "Add your SimBrief Pilot ID or username in API settings to time a landing.",
+            )
+            return
+        if self.simbrief.busy():
+            return
+        self.board.set_status("Generating a SimBrief plan to read the landing time…")
+        self.simbrief.start(hit, landing, settings.simbrief_id)
+
+    def _on_simbrief_url(self, url: str) -> None:
+        webbrowser.open(url)
+        self.board.set_status("SimBrief opened with a timed off-block. Generate the plan there yourself.")
+
+    def _on_simbrief_failed(self, message: str) -> None:
+        self.board.set_status(message)
+        if message != "SimBrief timing cancelled.":
+            QMessageBox.warning(self, "SimBrief", message)
+
     def _cleanup_worker(self) -> None:
         if self._worker:
             self._worker.deleteLater()
@@ -172,4 +221,6 @@ class MainWindow(QWidget):
         if self._thread and self._thread.isRunning():
             self._thread.quit()
             self._thread.wait(1500)
+        if self.simbrief.busy():
+            self.simbrief.cancel()
         super().closeEvent(event)
