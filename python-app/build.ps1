@@ -12,6 +12,9 @@ python -m PyInstaller `
     --windowed `
     --onefile `
     --name "CallsignFinder" `
+    --icon assets/app.ico `
+    --add-data "assets/app.ico;assets" `
+    --add-data "assets/app.png;assets" `
     --hidden-import PySide6.QtWebEngineWidgets `
     --hidden-import PySide6.QtWebEngineCore `
     --collect-all PySide6.QtWebEngineCore `

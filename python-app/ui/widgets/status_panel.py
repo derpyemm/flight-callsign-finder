@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from ui.resources import app_pixmap
 from ui.theme import ERROR_COLOR, OK_COLOR
 
 
@@ -41,6 +42,14 @@ class StatusPanel(QFrame):
         brand.addWidget(title)
         brand.setSpacing(0)
 
+        logo = QLabel()
+        logo.setObjectName("brandIcon")
+        pixmap = app_pixmap(36)
+        if not pixmap.isNull():
+            logo.setPixmap(pixmap)
+        logo.setFixedSize(40, 40)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         self.fr24_pill = self._pill("FR24")
         self.token_pill = self._pill("TOKEN")
         self.settings_button = QPushButton("API settings")
@@ -63,6 +72,7 @@ class StatusPanel(QFrame):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
+        layout.addWidget(logo)
         layout.addLayout(brand)
         layout.addStretch(1)
         layout.addLayout(right)

@@ -30,6 +30,10 @@ QMainWindow, QFrame {
     letter-spacing: 1px;
 }
 
+#brandIcon {
+    background: transparent;
+}
+
 #clockLabel {
     font-size: 18px;
     font-weight: 600;

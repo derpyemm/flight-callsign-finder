@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from core.models import Fr24Settings, SearchResult
 from core.search_service import search_callsigns
 from storage.settings_store import load_settings, save_settings
+from ui.resources import app_icon
 from ui.theme import STYLESHEET
 from ui.widgets.result_table import ResultBoard
 from ui.widgets.search_form import SearchForm
@@ -57,6 +58,9 @@ class MainWindow(QWidget):
         self.setWindowTitle("Callsign finder")
         self.resize(1100, 880)
         self.setStyleSheet(STYLESHEET)
+        icon = app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         self.settings = load_settings()
         self._thread: QThread | None = None
         self._worker: SearchWorker | None = None
