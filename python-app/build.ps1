@@ -17,6 +17,7 @@ python -m PyInstaller `
     --add-data "assets/app.png;assets" `
     --hidden-import PySide6.QtWebEngineWidgets `
     --hidden-import PySide6.QtWebEngineCore `
+    --hidden-import PySide6.QtWebChannel `
     --collect-all PySide6.QtWebEngineCore `
     --collect-all PySide6.QtWebEngineWidgets `
     main.py

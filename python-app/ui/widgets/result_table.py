@@ -71,15 +71,18 @@ class ResultBoard(QFrame):
 
         self.route_map = RouteMap()
         self.route_map.show_all_requested.connect(self._show_all_routes)
+        self.route_map.route_clicked.connect(self._on_map_route)
+        self.route_map.airport_clicked.connect(self._on_map_airport)
         self._hits: list[CallsignHit] = []
+        self._syncing = False
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.table)
         splitter.addWidget(self.route_map)
         splitter.setChildrenCollapsible(False)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([380, 280])
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([250, 420])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -167,6 +170,8 @@ class ResultBoard(QFrame):
         self.table.setColumnWidth(4, widest)
 
     def _on_row_selected(self) -> None:
+        if self._syncing:
+            return
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
         if not rows or not self._hits:
             self.route_map.show_hits(self._hits)
@@ -175,8 +180,42 @@ class ResultBoard(QFrame):
         if 0 <= row < len(self._hits):
             self.route_map.show_hits(self._hits, selected=self._hits[row])
 
-    def _show_all_routes(self) -> None:
+    def _select_row(self, row: int) -> None:
+        if not (0 <= row < len(self._hits)):
+            return
+        self._syncing = True
+        self.table.selectRow(row)
+        item = self.table.item(row, 0)
+        if item:
+            self.table.scrollToItem(item)
+        self._syncing = False
+        self.route_map.show_hits(self._hits, selected=self._hits[row])
+
+    def _on_map_route(self, origin: str, destination: str, callsign: str) -> None:
+        exact = -1
+        pair = -1
+        for index, hit in enumerate(self._hits):
+            if hit.origin != origin or hit.destination != destination:
+                continue
+            if pair < 0:
+                pair = index
+            if callsign and hit.callsign == callsign:
+                exact = index
+                break
+        chosen = exact if exact >= 0 else pair
+        if chosen >= 0:
+            self._select_row(chosen)
+
+    def _on_map_airport(self, icao: str) -> None:
+        self._syncing = True
         self.table.clearSelection()
+        self._syncing = False
+        self.route_map.show_hits(self._hits, airport=icao)
+
+    def _show_all_routes(self) -> None:
+        self._syncing = True
+        self.table.clearSelection()
+        self._syncing = False
         self.route_map.show_hits(self._hits)
 
     def _copy_cell(self, row: int, column: int) -> None:
