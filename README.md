@@ -31,4 +31,4 @@ Settings, token, and caches live in `%APPDATA%\CallsignFinder\`.
 
 ## Earlier web prototype
 
-The TypeScript / Tauri code in this repo is the previous prototype and is no longer the supported app.
+The TypeScript code in this repo is the previous browser prototype and is no longer the supported app.
