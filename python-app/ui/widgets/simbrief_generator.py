@@ -76,53 +76,87 @@ _PAGE_JS = r"""
   if (body.includes('generating') && (body.includes('ofp') || body.includes('flight plan') || body.includes('progress'))) {
     return 'generating';
   }
+  const onAuthUrl = (
+    href.includes('login') || href.includes('signin') || href.includes('oauth') ||
+    href.includes('auth.navigraph') || href.includes('id.navigraph')
+  );
+  if (onAuthUrl) {
+    return 'login';
+  }
 
   const compact = (t) => t.replace(/[^a-z0-9]/g, '');
-  const rankOf = (t) => {
+  const isBtn = (el) => {
+    const tag = (el.tagName || '').toUpperCase();
+    const type = (el.getAttribute('type') || '').toLowerCase();
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const oc = (el.getAttribute('onclick') || '').toLowerCase();
+    return tag === 'BUTTON' || tag === 'INPUT' || type === 'submit' || role === 'button' || oc.includes('simbrief');
+  };
+  const realClick = (el) => {
+    try { el.scrollIntoView({block: 'center', inline: 'center'}); } catch (e) {}
+    const opts = {bubbles: true, cancelable: true, view: window, composed: true};
+    try { el.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (e) {}
+    try { el.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (e) {}
+    try { el.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (e) {}
+    try { el.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (e) {}
+    try { el.dispatchEvent(new MouseEvent('click', opts)); } catch (e) {}
+    try { el.click(); } catch (e) {}
+  };
+  const rankOf = (t, el) => {
     const c = compact(t);
+    if (!isBtn(el)) return 99;
     if (c.includes('generateofp') || t.includes('generate ofp')) return 0;
     if (c.includes('generateflightplan') || c.includes('generateplan')) return 1;
-    if (c === 'generate') return 2;
-    if (c.includes('generateflight')) return 3;
-    if (c.startsWith('generate')) return 4;
+    if (c.includes('generateflight')) return 2;
+    if (c === 'generate') return 3;
+    if (c.startsWith('generate') && c.length > 8) return 4;
     return 99;
   };
-  const cands = [];
-  const seen = new Set();
-  const consider = (el) => {
-    const short = ownText(el);
-    const full = textOf(el);
-    const t = (short && short.length <= 40 ? short : (full.length <= 40 ? full : ''));
-    if (!t || rankOf(t) > 10) return;
-    const key = t + '|' + (el.tagName || '');
-    if (seen.has(key)) return;
-    seen.add(key);
-    cands.push({el, t, tag: el.tagName || '?', rank: rankOf(t), len: t.length});
-  };
-  for (const el of nodes) consider(el);
-  for (const doc of docs) {
-    for (const el of doc.querySelectorAll('*')) {
-      if ((el.innerText || '').length <= 48) consider(el);
+  if (!window.__sbGenClicked) {
+    const cands = [];
+    const seen = new Set();
+    const consider = (el) => {
+      const short = ownText(el);
+      const full = textOf(el);
+      const t = (short && short.length <= 40 ? short : (full.length <= 40 ? full : ''));
+      if (!t) return;
+      const rank = rankOf(t, el);
+      if (rank > 10) return;
+      const key = t + '|' + (el.tagName || '');
+      if (seen.has(key)) return;
+      seen.add(key);
+      cands.push({el, t, rank, len: t.length});
+    };
+    for (const el of nodes) consider(el);
+    for (const doc of docs) {
+      for (const el of doc.querySelectorAll('button, input[type=submit], input[type=button], [role=button], [onclick]')) consider(el);
+      for (const el of doc.querySelectorAll('*')) {
+        if ((el.innerText || '').length <= 48) consider(el);
+      }
     }
-  }
-  cands.sort((a, b) => a.rank - b.rank || a.len - b.len);
-  if (cands.length) {
-    const pick = cands[0];
-    pick.el.click();
-    return 'clicked:' + pick.t;
-  }
-  for (const el of nodes) {
-    if ((el.type || '').toLowerCase() === 'submit' || el.getAttribute('type') === 'submit') {
-      el.click();
-      return 'clicked:submit';
+    cands.sort((a, b) => a.rank - b.rank || a.len - b.len);
+    if (cands.length) {
+      realClick(cands[0].el);
+      window.__sbGenClicked = true;
+      return 'clicked:' + cands[0].t;
+    }
+    if (!window.__sbTabClicked) {
+      for (const doc of docs) {
+        for (const el of doc.querySelectorAll('*')) {
+          const t = compact(ownText(el) || textOf(el));
+          if ((t === 'generate' || t === 'generateflight' || t === 'generateofp') && el.childElementCount <= 2) {
+            window.__sbTabClicked = true;
+            realClick(el);
+            return 'tab:generate';
+          }
+        }
+      }
     }
   }
   if (href.includes('viewofp') || href.includes('ofp.loader') || href.includes('/ofp/')) {
     return 'done';
   }
   if (
-    href.includes('login') || href.includes('signin') || href.includes('oauth') ||
-    href.includes('auth.navigraph') || href.includes('id.navigraph') ||
     title.includes('sign in') || title.includes('log in') ||
     body.includes('sign in to navigraph') || body.includes('forgot password')
   ) {
@@ -266,6 +300,8 @@ class SimbriefGenerator(QWidget):
         self._awaiting_previous = False
         self._login_visible = False
         self._login_ticks = 0
+        self._login_dismissed = False
+        self._post_login_ticks = 0
         self._polls = 0
         self._busy = False
         self._thread: QThread | None = None
@@ -281,10 +317,14 @@ class SimbriefGenerator(QWidget):
             self.view.setPage(_EnginePage(_profile(self), self))
             self.view.loadFinished.connect(self._on_load)
 
+        self.close_now = QPushButton("Close now")
+        self.close_now.clicked.connect(self._close_login)
+        self.close_now.setVisible(False)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.cancel)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
+        buttons.addWidget(self.close_now)
         buttons.addWidget(cancel)
 
         layout = QVBoxLayout(self)
@@ -321,6 +361,8 @@ class SimbriefGenerator(QWidget):
         self._awaiting_previous = True
         self._login_visible = False
         self._login_ticks = 0
+        self._login_dismissed = False
+        self._post_login_ticks = 0
         self._polls = 0
         self._busy = True
         self._set_hidden()
@@ -339,6 +381,10 @@ class SimbriefGenerator(QWidget):
             self.failed.emit("SimBrief timing cancelled.")
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._login_visible and self._busy:
+            self._close_login()
+            event.ignore()
+            return
         if self._busy:
             self.cancel()
             event.ignore()
@@ -353,6 +399,7 @@ class SimbriefGenerator(QWidget):
 
     def _set_hidden(self) -> None:
         self._login_visible = False
+        self.close_now.setVisible(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
         self.resize(1280, 900)
         self.show()
@@ -381,34 +428,57 @@ class SimbriefGenerator(QWidget):
         self.hide()
         self.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
         self.resize(960, 700)
-        self.status.setText("Sign into SimBrief here. After you generate or sign in, this window hides and only the timed dispatch page opens.")
+        self.status.setText("Sign into SimBrief here. When you are done, press Close now.")
+        self.close_now.setVisible(True)
         self.show()
         self.showNormal()
         self.raise_()
         self.activateWindow()
+
+    def _close_login(self) -> None:
+        if not self._login_visible:
+            return
+        self._login_dismissed = True
+        self._login_ticks = 0
+        self._post_login_ticks = 0
+        self._form_ticks = 0
+        self._clicked = False
+        self._set_hidden()
+        if not self._busy:
+            self.hide()
+            return
+        self._set_progress("Generating a SimBrief plan to read the landing time…")
+        self._show_wait()
+        self._load_generate_form()
+
+    def _load_generate_form(self) -> None:
+        if not self._busy or not self._hit or not self.view:
+            return
+        landing_at = parse_landing_utc(self._landing)
+        if not landing_at:
+            self._fail("Could not start the SimBrief reference plan.")
+            return
+        url = simbrief_generate_form_url(self._hit, seed_offblock(landing_at), self._taxiout)
+        self.view.load(QUrl(url))
+        if not self._tick.isActive():
+            self._tick.start()
 
     def _on_previous(self, ofp: object) -> None:
         if not self._busy or not self._hit:
             return
         self._awaiting_previous = False
         self._previous_id = ofp_request_id(ofp if isinstance(ofp, dict) else None)
-        landing_at = parse_landing_utc(self._landing)
-        if not landing_at or not self.view:
-            self._fail("Could not start the SimBrief reference plan.")
-            return
-        self.view.load(QUrl(simbrief_generate_form_url(self._hit, seed_offblock(landing_at), self._taxiout)))
-        self._tick.start()
+        self._load_generate_form()
 
     def _on_load(self, ok: bool) -> None:
         if not self._busy:
             return
         if not ok:
-            self._fail("Could not reach SimBrief to generate the reference plan.")
             return
         self._inspect_page()
 
     def _inspect_page(self) -> None:
-        if not self._busy or not self.view:
+        if not self._busy or not self.view or self._login_visible:
             return
         self.view.page().runJavaScript(_PAGE_JS, self._on_js)
 
@@ -418,16 +488,24 @@ class SimbriefGenerator(QWidget):
         label = str(state or "")
         kind = label.split("|", 1)[0]
         if kind == "login":
+            if self._login_dismissed:
+                self._post_login_ticks += 1
+                if self._post_login_ticks in {3, 8}:
+                    self._load_generate_form()
+                    return
+                if self._post_login_ticks >= 12:
+                    self._login_dismissed = False
+                    self._login_ticks = 4
+                    self.status.setText("Still not signed in. Finish login, then press Close now.")
+                    self._show_login()
+                return
             self._login_ticks += 1
             if self._login_ticks >= 4:
                 self._show_login()
             return
         self._login_ticks = 0
-        if self._login_visible and (label.startswith("clicked") or kind in {"generating", "done"}):
-            self._set_hidden()
-            self._set_progress("Generating a SimBrief plan to read the landing time…")
-            self._show_wait()
-        if kind == "closing":
+        self._post_login_ticks = 0
+        if kind == "closing" or kind.startswith("tab:"):
             return
         if kind == "clicked" or label.startswith("clicked:"):
             self._clicked = True
@@ -443,9 +521,9 @@ class SimbriefGenerator(QWidget):
             return
         if kind == "form" and not self._clicked:
             self._form_ticks += 1
-            if self._form_ticks >= 8:
+            if self._form_ticks >= 8 and not self._login_dismissed:
                 self._show_login()
-            if self._form_ticks >= 30:
+            if self._form_ticks >= 30 and not self._login_visible:
                 self._fail("SimBrief did not generate the reference plan automatically. Sign in in the SimBrief window if it is shown.")
 
     def _poll_ofp(self) -> None:
