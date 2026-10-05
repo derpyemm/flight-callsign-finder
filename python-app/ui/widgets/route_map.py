@@ -281,19 +281,23 @@ class RouteMap(QFrame):
         header.addWidget(title, 1, Qt.AlignmentFlag.AlignVCenter)
         header.addWidget(self.show_all, 0, Qt.AlignmentFlag.AlignRight)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 0)
-        layout.setSpacing(6)
-        layout.addLayout(header)
-        layout.addWidget(self.hint)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 8, 0, 0)
+        self._layout.setSpacing(6)
+        self._layout.addLayout(header)
+        self._layout.addWidget(self.hint)
 
+        self.view = None
         if QWebEngineView is None:
             missing = QLabel("Install PySide6-Addons to show the dark OpenStreetMap view.")
             missing.setObjectName("hint")
-            layout.addWidget(missing, 1)
-            self.view = None
+            self._layout.addWidget(missing, 1)
             return
+        QTimer.singleShot(0, self._ensure_view)
 
+    def _ensure_view(self) -> None:
+        if self.view is not None or QWebEngineView is None:
+            return
         self.view = QWebEngineView(self)
         self.view.setMinimumHeight(220)
         if QWebEngineSettings is not None:
@@ -308,7 +312,9 @@ class RouteMap(QFrame):
             self.view.page().setWebChannel(self._channel)
         self.view.loadFinished.connect(self._on_ready)
         self.view.setHtml(MAP_HTML, QUrl("qrc:/"))
-        layout.addWidget(self.view, 1)
+        self._layout.addWidget(self.view, 1)
+        if self._pending is not None:
+            self._send(self._pending)
 
     def clear(self) -> None:
         self._hits = []

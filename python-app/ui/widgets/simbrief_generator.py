@@ -312,11 +312,6 @@ class SimbriefGenerator(QWidget):
         self.status.setWordWrap(True)
 
         self.view = None
-        if webengine_available():
-            self.view = QWebEngineView(self)
-            self.view.setPage(_EnginePage(_profile(self), self))
-            self.view.loadFinished.connect(self._on_load)
-
         self.close_now = QPushButton("Close now")
         self.close_now.clicked.connect(self._close_login)
         self.close_now.setVisible(False)
@@ -327,11 +322,9 @@ class SimbriefGenerator(QWidget):
         buttons.addWidget(self.close_now)
         buttons.addWidget(cancel)
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.status)
-        if self.view:
-            layout.addWidget(self.view, 1)
-        layout.addLayout(buttons)
+        self._layout = QVBoxLayout(self)
+        self._layout.addWidget(self.status)
+        self._layout.addLayout(buttons)
 
         self._tick = QTimer(self)
         self._tick.setInterval(2000)
@@ -343,8 +336,19 @@ class SimbriefGenerator(QWidget):
     def busy(self) -> bool:
         return self._busy
 
+    def _ensure_view(self) -> bool:
+        if self.view is not None:
+            return True
+        if not webengine_available():
+            return False
+        self.view = QWebEngineView(self)
+        self.view.setPage(_EnginePage(_profile(self), self))
+        self.view.loadFinished.connect(self._on_load)
+        self._layout.insertWidget(1, self.view, 1)
+        return True
+
     def start(self, hit: CallsignHit, landing: str, simbrief_id: str, taxiout: int | None = None) -> None:
-        if not webengine_available() or self.view is None:
+        if not self._ensure_view():
             self.failed.emit("SimBrief generate needs the app’s built-in browser (WebEngine).")
             return
         landing_at = parse_landing_utc(landing)

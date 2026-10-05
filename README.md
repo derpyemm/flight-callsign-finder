@@ -25,6 +25,6 @@ cd python-app
 .\build.ps1
 ```
 
-The packaged file is `python-app/dist/CallsignFinder.exe`.
+The packaged app is the folder `python-app/dist/CallsignFinder/`, with `CallsignFinder.exe` inside. A one-file exe would unpack Qt on every launch and start very slowly. Zip that folder (`python-app/dist/CallsignFinder.zip` after a build) to share it.
 
 Settings, token, and caches live in `%APPDATA%\CallsignFinder\`.
